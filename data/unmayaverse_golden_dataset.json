@@ -1,0 +1,114 @@
+[
+  {
+    "query_id": "q_01",
+    "modality_target": "Visual",
+    "query": "A woman drawing a question mark on a fogged bathroom mirror",
+    "ground_truth_start": 31.0,
+    "ground_truth_end": 33.0
+  },
+  {
+    "query_id": "q_02",
+    "modality_target": "Semantic",
+    "query": "A voiceover talking about seeking refuge in routines and a vice-like grip on normalcy",
+    "ground_truth_start": 40.0,
+    "ground_truth_end": 51.0
+  },
+  {
+    "query_id": "q_03",
+    "modality_target": "Multimodal",
+    "query": "Friends in a cafe offering a woman a bite of honey cake while discussing festival preparation",
+    "ground_truth_start": 78.0,
+    "ground_truth_end": 81.0
+  },
+  {
+    "query_id": "q_04",
+    "modality_target": "Semantic",
+    "query": "A dancer talking about finding it really hard to get her body to do what she wants",
+    "ground_truth_start": 100.0,
+    "ground_truth_end": 103.0
+  },
+  {
+    "query_id": "q_05",
+    "modality_target": "Visual",
+    "query": "Psychological horror scene of a woman looking at peeling skin on her left shoulder",
+    "ground_truth_start": 120.0,
+    "ground_truth_end": 125.0
+  },
+  {
+    "query_id": "q_06",
+    "modality_target": "Semantic",
+    "query": "An echoing female voice telling the protagonist to be careful with what she wears",
+    "ground_truth_start": 140.0,
+    "ground_truth_end": 143.0
+  },
+  {
+    "query_id": "q_07",
+    "modality_target": "Visual",
+    "query": "A dark, heavy snake coiled around a woman's torso in a dimly lit bathroom",
+    "ground_truth_start": 120.0,
+    "ground_truth_end": 125.0
+  },
+  {
+    "query_id": "q_08",
+    "modality_target": "Semantic",
+    "query": "An internal conversation about questioning every move so you never feel unsafe again",
+    "ground_truth_start": 152.0,
+    "ground_truth_end": 159.0
+  },
+  {
+    "query_id": "q_09",
+    "modality_target": "Multimodal",
+    "query": "An announcer introducing a performer named Maya from India for the Figure8 dance festival",
+    "ground_truth_start": 185.0,
+    "ground_truth_end": 188.0
+  },
+  {
+    "query_id": "q_10",
+    "modality_target": "Visual",
+    "query": "A woman performing fluid Tribal Fusion Belly Dance choreography on stage",
+    "ground_truth_start": 185.0,
+    "ground_truth_end": 230.0
+  },
+  {
+    "query_id": "q_11",
+    "modality_target": "Semantic",
+    "query": "A voiceover saying that she reminds herself to find joy in her own body and skin",
+    "ground_truth_start": 259.0,
+    "ground_truth_end": 264.0
+  },
+  {
+    "query_id": "q_12",
+    "modality_target": "Visual",
+    "query": "Maya wiping a question mark off a bathroom mirror",
+    "ground_truth_start": 251.0,
+    "ground_truth_end": 258.0
+  },
+  {
+    "query_id": "q_13",
+    "modality_target": "Visual",
+    "query": "Maya hugging herself while looking at her reflection in front of a bathroom mirror",
+    "ground_truth_start": 259.0,
+    "ground_truth_end": 262.0
+  },
+  {
+    "query_id": "q_neg_01",
+    "modality_target": "Negative",
+    "query": "A high-speed car chase through neon-lit futuristic city streets at night",
+    "ground_truth_start": null,
+    "ground_truth_end": null
+  },
+  {
+    "query_id": "q_neg_02",
+    "modality_target": "Negative",
+    "query": "A chef chopping fresh vegetables and stirring a boiling pot of soup in a commercial kitchen",
+    "ground_truth_start": null,
+    "ground_truth_end": null
+  },
+  {
+    "query_id": "q_neg_03",
+    "modality_target": "Negative",
+    "query": "An astronaut floating in zero gravity outside the International Space Station",
+    "ground_truth_start": null,
+    "ground_truth_end": null
+  }
+]

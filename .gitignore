@@ -1,0 +1,19 @@
+# Virtual Environment & Python cache
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+
+# Large media files (>100MB) and generated artifacts
+data/*.mp4
+data/*.wav
+data/frames_1fps/
+data/htdemucs/
+data/qdrant_db/
+
+# Keep golden dataset and lightweight references
+!data/unmayaverse_golden_dataset.json
+!data/maya_reference_crop.jpg
