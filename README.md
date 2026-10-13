@@ -92,7 +92,8 @@ git clone https://github.com/ojasvita25/unmayaverse.git
 cd unmayaverse
 pip install -r requirements.txt
 
-# Download or copy your video file into the data/ directory (e.g. data/unmaya_HD.mp4) and update path in src/config.py
+# Download or copy your video file into the data/ directory (e.g. data/
+# unmaya_HD.mp4) and update path in src/config.py
 VIDEO_FILE = "your_video_filename.mp4"
 
 # Extract frames, audio separation, transcripts, and face tags
