@@ -1,6 +1,6 @@
-# Unmayaverse: Multimodal Video Frame Retrieval Engine
+# Unmayaverse: Multimodal In-Video Search
 
-An end-to-end multimodal video retrieval system that searches video frames across **Visual features (SigLIP)**, **Dialogue transcripts (BGE)**, **Acoustic score stems (CLAP)**, and **Biometric character identification (InsightFace)**, indexed in a local **Qdrant Vector Database** and fused using **Weighted Reciprocal Rank Fusion (RRF)**.
+An end-to-end multimodal static scene retrieval system that searches video frames across **Visual features (SigLIP)**, **Dialogue transcripts (BGE)**, **Acoustic score stems (CLAP)**, and **Biometric character identification (InsightFace)**, indexed in a local **Qdrant Vector Database** and fused using **Weighted Reciprocal Rank Fusion (RRF)**.
 
 ![Unmayaverse Gradio Web UI](assets/gradio_ui_demo.png)
 
@@ -91,6 +91,9 @@ Evaluated against the ground truth golden dataset (20 queries: 17 positive targe
 git clone https://github.com/ojasvita25/unmayaverse.git
 cd unmayaverse
 pip install -r requirements.txt
+
+# Download or copy your video file into the data/ directory (e.g. data/unmaya_HD.mp4) and update path in src/config.py
+VIDEO_FILE = "your_video_filename.mp4"
 
 # Extract frames, audio separation, transcripts, and face tags
 python -m src.main --preprocess

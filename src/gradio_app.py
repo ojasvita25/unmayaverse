@@ -93,7 +93,7 @@ def build_gradio_ui(search_engine: MultimodalSearchEngine) -> gr.Blocks:
     with gr.Blocks(title="Unmayaverse Multimodal AI Video Search") as demo:
         gr.Markdown(
             """
-            # Unmayaverse: Multimodal AI Video Search
+            # Unmayaverse: Multimodal In-Video Search
             Search video frames across Visual (SigLIP), Dialogue Text (BGE), Acoustic Score (CLAP), and Automatic Character Identity (InsightFace).
             """
         )
