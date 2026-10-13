@@ -2,6 +2,8 @@
 
 An end-to-end multimodal video retrieval system that searches video frames across **Visual features (SigLIP)**, **Dialogue transcripts (BGE)**, **Acoustic score stems (CLAP)**, and **Biometric character identification (InsightFace)**, indexed in a local **Qdrant Vector Database** and fused using **Weighted Reciprocal Rank Fusion (RRF)**.
 
+![Unmayaverse Gradio Web UI](assets/gradio_ui_demo.png)
+
 ---
 
 ## Benchmark Evaluation Results
