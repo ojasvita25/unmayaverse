@@ -66,16 +66,25 @@ FRAME_JPEG_QUALITY = 3         # FFmpeg q:v quality (2=near-lossless, 3-4=optima
 # =============================================================================
 # RETRIEVAL, FUSION & FILTERING HYPERPARAMETERS
 # =============================================================================
-RRF_K_CONSTANT = 60
-VISUAL_NOISE_FLOOR = 0.15
-SEMANTIC_NOISE_FLOOR = 0.20
-ACOUSTIC_NOISE_FLOOR = 0.10
-DEFAULT_MIN_Z_SCORE = 1.8
+RRF_K_CONSTANT = 20
+VISUAL_NOISE_FLOOR = 0.1
+SEMANTIC_NOISE_FLOOR = 0.45
+ACOUSTIC_NOISE_FLOOR = 0.20
+MIN_RRF_SCORE = 0.015
 
 DEFAULT_TOP_K = 5
-DEFAULT_VIS_WEIGHT = 0.33
-DEFAULT_SEM_WEIGHT = 0.33
-DEFAULT_AUD_WEIGHT = 0.34
+# Default RRF weights
+DEFAULT_WEIGHTS_VIS_TEXT = {
+    "visual": 0.6,
+    "semantic": 0.4
+}
+
+DEFAULT_WEIGHTS_TRI_MODAL = {
+    "visual": 0.35,
+    "semantic": 0.35,
+    "audio": 0.30
+}
+
 
 # =============================================================================
 # UI & REMOTE STORAGE DEFAULTS

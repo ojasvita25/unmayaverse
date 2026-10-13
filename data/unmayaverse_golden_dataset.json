@@ -110,5 +110,33 @@
     "query": "An astronaut floating in zero gravity outside the International Space Station",
     "ground_truth_start": null,
     "ground_truth_end": null
+  },
+  {
+    "query_id": "q_14",
+    "modality_target": "Multimodal",
+    "query": "A woman looking into a fogged bathroom mirror while a water tap runs continuously in the background",
+    "ground_truth_start": 238.0,
+    "ground_truth_end": 256.0
+  },
+  {
+    "query_id": "q_15",
+    "modality_target": "Multimodal",
+    "query": "A belly dancer performing on stage to a soundtrack featuring high-pitched vocal ululations",
+    "ground_truth_start": 229.0,
+    "ground_truth_end": 235.0
+  },
+  {
+    "query_id": "q_16",
+    "modality_target": "Multimodal",
+    "query": "A dancer performing fluid choreography on stage driven by heavy tribal beats and rising percussion",
+    "ground_truth_start": 187.0,
+    "ground_truth_end": 231.0
+  },
+  {
+    "query_id": "q_17",
+    "modality_target": "Multimodal",
+    "query": "Gentle ambient music accompanying a woman wiping a question mark off the bathroom mirror and embracing her reflection",
+    "ground_truth_start": 252.0,
+    "ground_truth_end": 259.0
   }
 ]

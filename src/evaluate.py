@@ -16,7 +16,6 @@ from src.config import (
     SEARCH_MODE_VISUAL,
     SEARCH_MODE_VISUAL_TEXT,
     SEARCH_MODE_VISUAL_TEXT_AUDIO,
-    DEFAULT_MIN_Z_SCORE,
 )
 from src.search_engine import MultimodalSearchEngine
 
@@ -25,7 +24,6 @@ def evaluate_retrieval(
     search_engine: MultimodalSearchEngine,
     dataset: List[Dict[str, Any]],
     mode: str = SEARCH_MODE_VISUAL_TEXT_AUDIO,
-    min_z_score: float = DEFAULT_MIN_Z_SCORE,
     k_values: List[int] = [1, 3, 5, 10],
     verbose: bool = False
 ) -> Dict[str, Any]:
@@ -36,7 +34,6 @@ def evaluate_retrieval(
         search_engine: Initialized MultimodalSearchEngine.
         dataset: List of query dictionaries with ground truth intervals.
         mode: Retrieval mode to evaluate ('visual', 'visual+text', 'visual+text+audio').
-        min_z_score: Confidence threshold for Z-score gating.
         k_values: Ranks to evaluate Recall@K at.
         verbose: If True, prints per-query rank logs.
         
@@ -69,7 +66,6 @@ def evaluate_retrieval(
             query_text=query_text,
             mode=mode,
             top_k=max_k,
-            min_z_score=min_z_score
         )
         
         # Negative / Out-of-Domain evaluation
@@ -171,14 +167,14 @@ def run_benchmark_comparison(
     search_engine: MultimodalSearchEngine,
     dataset: List[Dict[str, Any]],
     modes: List[str] = SEARCH_MODES,
-    min_z_score: float = DEFAULT_MIN_Z_SCORE
+    print_more_info: bool = False,
 ) -> List[Dict[str, Any]]:
     """Runs and tabulates comparative evaluation across multiple search modes."""
     results = []
     
     print("=" * 90)
     print(" UNMAYAVERSE MULTIMODAL RETRIEVAL BENCHMARK EVALUATION")
-    print(f" Dataset Size: {len(dataset)} queries | Min Z-Score Threshold: {min_z_score}")
+    print(f" Dataset Size: {len(dataset)} queries ")
     print("=" * 90)
 
     for mode in modes:
@@ -187,12 +183,11 @@ def run_benchmark_comparison(
             search_engine=search_engine,
             dataset=dataset,
             mode=mode,
-            min_z_score=min_z_score,
             verbose=False
         )
         results.append(res)
 
-    print("\n" + "=" * 90)
+        print("\n" + "=" * 90)
     print(f"{'Mode':<26} | {'MRR':<7} | {'R@1':<7} | {'R@3':<7} | {'R@5':<7} | {'R@10':<7} | {'Rejection':<10}")
     print("-" * 90)
     for r in results:
@@ -203,15 +198,31 @@ def run_benchmark_comparison(
         )
     print("=" * 90)
 
-    # Print modality breakdown for the full multimodal mode
-    full_mode_res = next((r for r in results if r["mode"] == SEARCH_MODE_VISUAL_TEXT_AUDIO), results[-1])
-    print(f"\nModality Target Breakdown for '{full_mode_res['mode']}':")
-    print("-" * 60)
-    print(f"{'Target Modality':<20} | {'Queries':<8} | {'MRR':<8} | {'Recall@5':<8}")
-    print("-" * 60)
-    for mod, stat in full_mode_res["modality_breakdown"].items():
-        print(f"{mod:<20} | {stat['count']:<8} | {stat['mrr']:<8.4f} | {stat['recall@5']:<8.4f}")
-    print("-" * 60)
+    if print_more_info:
+        # 1. Print modality target breakdown for each evaluated mode
+        for r in results:
+            print(f"\nModality Target Breakdown for '{r['mode']}':")
+            print("-" * 60)
+            print(f"{'Target Modality':<20} | {'Queries':<8} | {'MRR':<8} | {'Recall@5':<8}")
+            print("-" * 60)
+            for mod, stat in r["modality_breakdown"].items():
+                print(f"{mod:<20} | {stat['count']:<8} | {stat['mrr']:<8.4f} | {stat['recall@5']:<8.4f}")
+            print("-" * 60)
+
+        # 2. Print query text and first-hit rank for each mode
+        for r in results:
+            print("\n" + "=" * 90)
+            print(f" DETAILED QUERY RANKINGS FOR MODE: '{r['mode']}'")
+            print("=" * 90)
+            print(f"{'ID':<10} | {'Target':<12} | {'Rank':<10} | Query Text")
+            print("-" * 90)
+            for q in r["detailed_queries"]:
+                if q["is_negative"]:
+                    rank_str = "REJECTED" if q["rejected"] else "FALSE POS"
+                else:
+                    rank_str = f"#{q['first_hit_rank']}" if q["first_hit_rank"] else "MISSED"
+                print(f"{q['query_id']:<10} | {q['modality']:<12} | {rank_str:<10} | {q['query']}")
+            print("-" * 90)
 
     return results
 
@@ -220,7 +231,6 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate Unmayaverse Retrieval Pipeline")
     parser.add_argument("--media-folder", type=str, default=MEDIA_FOLDER_PATH, help="Path to media directory")
     parser.add_argument("--mode", type=str, default="all", choices=["all"] + SEARCH_MODES, help="Search mode")
-    parser.add_argument("--min-z-score", type=float, default=DEFAULT_MIN_Z_SCORE, help="Min Z-score threshold")
     parser.add_argument("--verbose", action="store_true", help="Print per-query evaluation details")
     args = parser.parse_args()
 
@@ -238,14 +248,12 @@ def main():
         run_benchmark_comparison(
             search_engine=engine,
             dataset=dataset,
-            min_z_score=args.min_z_score
         )
     else:
         res = evaluate_retrieval(
             search_engine=engine,
             dataset=dataset,
             mode=args.mode,
-            min_z_score=args.min_z_score,
             verbose=args.verbose
         )
         print("\nEvaluation Results:")

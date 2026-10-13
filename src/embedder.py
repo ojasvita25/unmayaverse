@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from typing import Tuple, Optional
-
+import shutil
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
@@ -167,7 +167,46 @@ class MultimodalEmbedder:
         print(f"[Success] Acoustic CLAP: {aud_embs.shape} generated in {elapsed:.1f}s ({fps:.1f} frames/s)")
         return aud_embs
 
-    def save_to_qdrant(self, img_embs: np.ndarray, txt_embs: np.ndarray, aud_embs: np.ndarray, frame_metadata: list) -> str:
+    def cleanup_intermediates(self):
+        """Removes temporary embeddings, transcripts, and audio separation artifacts after Qdrant indexing."""
+        files_to_remove = [
+            # Precomputed embeddings
+            os.path.join(self.media_folder, IMAGE_EMBEDDINGS_NPY),
+            os.path.join(self.media_folder, TEXT_EMBEDDINGS_NPY),
+            os.path.join(self.media_folder, AUDIO_EMBEDDINGS_NPY),
+            os.path.join(self.media_folder, "maya_reference_embedding.npy"),
+            # Intermediate JSON metadata
+            os.path.join(self.media_folder, FRAME_METADATA_JSON),
+            os.path.join(self.media_folder, "unmaya_semantic_transcripts.json"),
+            os.path.join(self.media_folder, "unmaya_face_embeddings.json"),
+            os.path.join(self.media_folder, "text_metadata.json"),
+            os.path.join(self.media_folder, "character_clusters.json"),
+            # Intermediate extracted audio
+            os.path.join(self.media_folder, MASTER_AUDIO_FILE),
+        ]
+
+        print("\nCleaning up intermediate staging files...")
+        for fpath in files_to_remove:
+            if os.path.exists(fpath):
+                os.remove(fpath)
+                print(f"  Removed file: {os.path.basename(fpath)}")
+
+        # Remove Demucs separation folder
+        htdemucs_dir = os.path.join(self.media_folder, "htdemucs")
+        if os.path.exists(htdemucs_dir):
+            shutil.rmtree(htdemucs_dir)
+            print("  Removed directory: htdemucs/")
+
+        print("[Success] Cleanup completed. Qdrant DB and frames_1fps/ preserved.")
+
+    def save_to_qdrant(
+        self, 
+        img_embs: np.ndarray, 
+        txt_embs: np.ndarray, 
+        aud_embs: np.ndarray, 
+        frame_metadata: list,
+        cleanup: bool = True
+    ) -> str:
         """Saves embeddings and frame metadata directly into embedded Qdrant DB with progress bar."""
         start_time = time.time()
         print(f"\n[4/4] Qdrant Indexing: Initializing local vector database at: {self.qdrant_path}...")
@@ -214,7 +253,13 @@ class MultimodalEmbedder:
         client.upsert(collection_name=QDRANT_COLLECTION_NAME, points=points)
         elapsed = time.time() - start_time
         print(f"[Success] All points indexed in Qdrant in {elapsed:.1f}s!")
+
+        # Trigger cleanup after successful upsert
+        if cleanup:
+            self.cleanup_intermediates()
+
         return self.qdrant_path
+
 
     def run_pipeline(self, max_frames: Optional[int] = None, save_to_qdrant: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Runs embedding and indexing pipeline. If max_frames is provided, only processes the first N frames."""

@@ -25,11 +25,13 @@ from .config import (
     VISUAL_NOISE_FLOOR,
     SEMANTIC_NOISE_FLOOR,
     ACOUSTIC_NOISE_FLOOR,
-    DEFAULT_MIN_Z_SCORE,
     SEARCH_MODE_VISUAL,
     SEARCH_MODE_VISUAL_TEXT,
     SEARCH_MODE_VISUAL_TEXT_AUDIO,
-    SEARCH_MODES,
+    DEFAULT_WEIGHTS_VIS_TEXT,
+    DEFAULT_WEIGHTS_TRI_MODAL,
+    MIN_RRF_SCORE,
+
 )
 
 
@@ -111,10 +113,10 @@ class MultimodalSearchEngine:
         mode: str = SEARCH_MODE_VISUAL_TEXT_AUDIO,
         character_name: Optional[str] = None,
         top_k: int = 5,
-        min_z_score: float = DEFAULT_MIN_Z_SCORE,
-        vis_weight: float = 0.33,
-        sem_weight: float = 0.33,
-        aud_weight: float = 0.34
+        min_rrf_score: Optional[float] = None,
+        vis_weight: Optional[float] = None,
+        sem_weight: Optional[float] = None,
+        aud_weight: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """Executes multimodal search across Qdrant with optional character filtering and RRF fusion."""
         if not self.client.collection_exists(QDRANT_COLLECTION_NAME):
@@ -132,12 +134,38 @@ class MultimodalSearchEngine:
         load_aud = mode == SEARCH_MODE_VISUAL_TEXT_AUDIO
         self.load_encoders(load_vis, load_sem, load_aud)
 
-        # Character payload filter if specified (e.g. 'Maya')
+        # Automatic character identity detection from query text or explicit filter
+        target_char = character_name
+        if target_char in [None, "All Characters", "All Characters (Auto-Detect)"]:
+            # Auto-detect known character keywords in query
+            q_lower = query_text.lower()
+            if "maya" in q_lower:
+                target_char = "Maya"
+            else:
+                target_char = None
+
         query_filter = None
-        if character_name and character_name not in ["All Characters", "All Characters (Auto-Detect)"]:
+        if target_char:
             query_filter = Filter(
-                must=[FieldCondition(key="characters", match=MatchValue(value=character_name))]
+                must=[FieldCondition(key="characters", match=MatchValue(value=target_char))]
             )
+
+        # -------------------------------------------------------------
+        # DYNAMIC WEIGHT RESOLUTION & NORMALIZATION 
+        # -------------------------------------------------------------
+        if mode == SEARCH_MODE_VISUAL_TEXT:
+            vw = vis_weight if vis_weight is not None else DEFAULT_WEIGHTS_VIS_TEXT["visual"]
+            sw = sem_weight if sem_weight is not None else DEFAULT_WEIGHTS_VIS_TEXT["semantic"]
+            total = vw + sw
+            vis_w, sem_w, aud_w = vw / total, sw / total, 0.0
+        elif mode == SEARCH_MODE_VISUAL_TEXT_AUDIO:
+            vw = vis_weight if vis_weight is not None else DEFAULT_WEIGHTS_TRI_MODAL["visual"]
+            sw = sem_weight if sem_weight is not None else DEFAULT_WEIGHTS_TRI_MODAL["semantic"]
+            aw = aud_weight if aud_weight is not None else DEFAULT_WEIGHTS_TRI_MODAL["audio"]
+            total = vw + sw + aw
+            vis_w, sem_w, aud_w = vw / total, sw / total, aw / total
+        else:  # Visual only
+            vis_w, sem_w, aud_w = 1.0, 0.0, 0.0
 
         # -----------------------------------------------------------------
         # MODE 1: VISUAL ONLY
@@ -156,13 +184,13 @@ class MultimodalSearchEngine:
                 return []
 
             scores = np.array([pt.score for pt in hits])
-            z_scores = self.compute_z_scores(scores)
+            # z_scores = self.compute_z_scores(scores)
             results = []
 
             for rank_idx, pt in enumerate(hits):
                 score = float(pt.score)
-                z_val = float(z_scores[rank_idx])
-                if score >= VISUAL_NOISE_FLOOR and z_val >= min_z_score:
+                # z_val = float(z_scores[rank_idx])
+                if score >= VISUAL_NOISE_FLOOR:
                     results.append({
                         "frame_index": pt.payload["frame_index"],
                         "timestamp": pt.payload["timestamp"],
@@ -175,14 +203,16 @@ class MultimodalSearchEngine:
 
             results.sort(key=lambda x: x["score"], reverse=True)
             return results[:top_k]
+        
+        
 
         # -----------------------------------------------------------------
-        # MODE 2 & 3: RECIPROCAL RANK FUSION (RRF)
+        # MODE 2 & 3: RECIPROCAL RANK FUSION (RRF) - COSINE THRESHOLD ONLY
         # -----------------------------------------------------------------
         rrf_scores: Dict[int, float] = {}
         payload_map: Dict[int, Any] = {}
 
-        # 1. Visual Query
+        # 1. Visual Query (SigLIP)
         v_query = self.visual_model.encode([query_text], convert_to_numpy=True, normalize_embeddings=True)[0]
         v_hits = self.client.query_points(
             collection_name=QDRANT_COLLECTION_NAME,
@@ -193,15 +223,17 @@ class MultimodalSearchEngine:
         ).points
 
         if v_hits:
-            v_scores = np.array([pt.score for pt in v_hits])
-            v_z = self.compute_z_scores(v_scores)
-            for rank_idx, pt in enumerate(v_hits):
+            valid_vis_rank = 0  # Reindexing counter for surviving visual hits
+            for pt in v_hits:
                 f_idx = pt.payload["frame_index"]
                 payload_map[f_idx] = pt.payload
-                if pt.score >= VISUAL_NOISE_FLOOR and v_z[rank_idx] >= min_z_score:
-                    rrf_scores[f_idx] = rrf_scores.get(f_idx, 0.0) + vis_weight * (1.0 / (RRF_K_CONSTANT + rank_idx + 1))
+                # Pure cosine thresholding gate
+                if pt.score >= VISUAL_NOISE_FLOOR:
+                    # print('siglip cosine',pt.score)
+                    rrf_scores[f_idx] = rrf_scores.get(f_idx, 0.0) + vis_w * (1.0 / (RRF_K_CONSTANT + valid_vis_rank + 1))
+                    valid_vis_rank += 1
 
-        # 2. Semantic Query
+        # 2. Semantic Query (BGE)
         sem_prompt = f"Represent this sentence for searching relevant passages: {query_text}"
         s_query = self.semantic_model.encode([sem_prompt], convert_to_numpy=True, normalize_embeddings=True)[0]
         s_hits = self.client.query_points(
@@ -213,15 +245,17 @@ class MultimodalSearchEngine:
         ).points
 
         if s_hits:
-            s_scores = np.array([pt.score for pt in s_hits])
-            s_z = self.compute_z_scores(s_scores)
-            for rank_idx, pt in enumerate(s_hits):
+            valid_sem_rank = 0  # Reindexing counter for surviving semantic hits
+            for pt in s_hits:
                 f_idx = pt.payload["frame_index"]
                 payload_map[f_idx] = pt.payload
-                if pt.score >= SEMANTIC_NOISE_FLOOR and s_z[rank_idx] >= min_z_score:
-                    rrf_scores[f_idx] = rrf_scores.get(f_idx, 0.0) + sem_weight * (1.0 / (RRF_K_CONSTANT + rank_idx + 1))
+                # Pure cosine thresholding gate
+                if pt.score >= SEMANTIC_NOISE_FLOOR:
+                    # print('bge cosine',pt.score)
+                    rrf_scores[f_idx] = rrf_scores.get(f_idx, 0.0) + sem_w * (1.0 / (RRF_K_CONSTANT + valid_sem_rank + 1))
+                    valid_sem_rank += 1
 
-        # 3. Acoustic Query (Mode 3 Only)
+        # 3. Acoustic Query (CLAP) (Mode 3 Only)
         if mode == SEARCH_MODE_VISUAL_TEXT_AUDIO and self.clap_model is not None:
             clap_inputs = self.clap_proc(text=[query_text], return_tensors="pt").to(self.device)
             with torch.no_grad():
@@ -230,7 +264,6 @@ class MultimodalSearchEngine:
                 if isinstance(a_query, torch.Tensor):
                     a_query = a_query.squeeze().cpu().numpy()
                 a_query = a_query / (np.linalg.norm(a_query) + 1e-8)
-
 
             a_hits = self.client.query_points(
                 collection_name=QDRANT_COLLECTION_NAME,
@@ -241,16 +274,24 @@ class MultimodalSearchEngine:
             ).points
 
             if a_hits:
-                a_scores = np.array([pt.score for pt in a_hits])
-                a_z = self.compute_z_scores(a_scores)
-                for rank_idx, pt in enumerate(a_hits):
+                valid_aud_rank = 0  # Reindexing counter for surviving audio hits
+                for pt in a_hits:
                     f_idx = pt.payload["frame_index"]
                     payload_map[f_idx] = pt.payload
-                    if pt.score >= ACOUSTIC_NOISE_FLOOR and a_z[rank_idx] >= min_z_score:
-                        rrf_scores[f_idx] = rrf_scores.get(f_idx, 0.0) + aud_weight * (1.0 / (RRF_K_CONSTANT + rank_idx + 1))
+                    # Pure cosine thresholding gate
+                    if pt.score >= ACOUSTIC_NOISE_FLOOR:
+                        # print('audio clap cosine',pt.score)
+                        rrf_scores[f_idx] = rrf_scores.get(f_idx, 0.0) + aud_w * (1.0 / (RRF_K_CONSTANT + valid_aud_rank + 1))
+                        valid_aud_rank += 1
 
+        # Final Aggregation & Processing (Gated by MIN_RRF_SCORE)
+        rrf_threshold = min_rrf_score if min_rrf_score is not None else MIN_RRF_SCORE
         results = []
         for f_idx, score in rrf_scores.items():
+            # Discard any candidate that fails the fused confidence threshold
+            if score < rrf_threshold:
+                continue
+
             meta = payload_map[f_idx]
             results.append({
                 "frame_index": f_idx,
@@ -262,5 +303,14 @@ class MultimodalSearchEngine:
                 "mode": mode
             })
 
+
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_k]
+
+
+
+    def close(self):
+        """Releases local Qdrant database file lock."""
+        if hasattr(self, "client") and self.client is not None:
+            self.client.close()
+

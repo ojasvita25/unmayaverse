@@ -23,10 +23,7 @@ from src.config import (
     DEFAULT_REFERENCE_FRAME,
     DEFAULT_FACE_THRESHOLD,
     DEFAULT_TOP_K,
-    DEFAULT_MIN_Z_SCORE,
-    DEFAULT_VIS_WEIGHT,
-    DEFAULT_SEM_WEIGHT,
-    DEFAULT_AUD_WEIGHT,
+    MIN_RRF_SCORE,
     DEFAULT_GRADIO_PORT,
 )
 
@@ -48,28 +45,34 @@ def run_preprocess(args):
     """Executes end-to-end raw media extraction and embedding generation."""
     from src.preprocessor import DataPreprocessor
 
-    print(f"\n[1/6] Initializing Preprocessor for: {args.media_folder}")
-    preprocessor = DataPreprocessor(media_folder_path=args.media_folder)
+    media_folder = getattr(args, "media_folder", MEDIA_FOLDER_PATH)
+    fps = getattr(args, "fps", DEFAULT_FPS)
+    whisper_model = getattr(args, "whisper_model", DEFAULT_WHISPER_MODEL)
+    ref_frame = getattr(args, "reference_frame", DEFAULT_REFERENCE_FRAME)
+    face_threshold = getattr(args, "face_threshold", DEFAULT_FACE_THRESHOLD)
+    video_path = getattr(args, "video_path", None) or os.path.join(media_folder, VIDEO_FILE)
 
-    video_path = args.video_path or os.path.join(args.media_folder, VIDEO_FILE)
+    print(f"\n[1/6] Initializing Preprocessor for: {media_folder}")
+    preprocessor = DataPreprocessor(media_folder_path=media_folder)
+
     if not os.path.exists(video_path):
         print(f"[Error] Video file not found at: {video_path}")
         return
 
     print(f"Processing video: {video_path}")
     print("\n[2/6] Extracting 1 FPS Frames...")
-    preprocessor.extract_frames(video_file=video_path, fps=args.fps)
+    preprocessor.extract_frames(video_file=video_path, fps=fps)
 
     print("\n[3/6] Extracting Audio & Separating Vocals/Score (Demucs)...")
     preprocessor.extract_master_audio(video_file=video_path)
     preprocessor.separate_audio_demucs()
 
     print("\n[4/6] Transcribing Speech Dialogue (Whisper)...")
-    preprocessor.transcribe_audio_whisper(model_name=args.whisper_model)
+    preprocessor.transcribe_audio_whisper(model_name=whisper_model)
 
     print("\n[5/6] Extracting Character Face Embeddings (InsightFace)...")
-    preprocessor.extract_maya_reference_embedding(reference_input=args.reference_frame)
-    preprocessor.run_face_analysis(similarity_threshold=args.face_threshold)
+    preprocessor.extract_maya_reference_embedding(reference_input=ref_frame)
+    preprocessor.run_face_analysis(similarity_threshold=face_threshold)
     preprocessor.extract_and_align_all_raw_data()
 
     print("\n[6/6] Generating Multimodal Feature Vectors (SigLIP / BGE / CLAP)...")
@@ -82,16 +85,18 @@ def run_preprocess(args):
 
 def run_index(args):
     """Indexes preprocessed embeddings and frame metadata into Qdrant."""
-    from src.search_engine import MultimodalSearchEngine
+    from src.embedder import MultimodalEmbedder
 
-    print(f"\n[Info] Initializing Qdrant Engine (Storage: {args.qdrant_path})...")
-    engine = MultimodalSearchEngine(
-        media_folder_path=args.media_folder,
-        qdrant_path=args.qdrant_path,
-        device=args.device or get_default_device()
+    media_folder = getattr(args, "media_folder", MEDIA_FOLDER_PATH)
+    qdrant_path = getattr(args, "qdrant_path", QDRANT_DB_DIR)
+
+    print(f"\n[Info] Initializing Multimodal Embedder (Storage: {qdrant_path})...")
+    embedder = MultimodalEmbedder(
+        media_folder_path=media_folder,
+        qdrant_path=qdrant_path,
     )
-    print("Pushing named vectors (visual, semantic, audio, face) into Qdrant...")
-    engine.index_embeddings_to_qdrant()
+    print("Generating embeddings and pushing named vectors into Qdrant...")
+    embedder.run_pipeline(save_to_qdrant=True)
     print("[Success] Qdrant indexing completed successfully!")
 
 
@@ -99,47 +104,59 @@ def run_search(args):
     """Executes a multimodal query across the specified search mode."""
     from src.search_engine import MultimodalSearchEngine
 
-    device = args.device or get_default_device()
+    media_folder = getattr(args, "media_folder", MEDIA_FOLDER_PATH)
+    qdrant_path = getattr(args, "qdrant_path", QDRANT_DB_DIR)
+    device = getattr(args, "device", None) or get_default_device()
+
     engine = MultimodalSearchEngine(
-        media_folder_path=args.media_folder,
-        qdrant_path=args.qdrant_path,
+        media_folder_path=media_folder,
+        qdrant_path=qdrant_path,
         device=device
     )
 
-    print(f"\nQuery: '{args.query}' | Mode: '{args.mode}' | Device: '{device}'")
-    results = engine.search(
-        query_text=args.query,
-        mode=args.mode,
-        character_name=args.character,
-        top_k=args.top_k,
-        min_z_score=args.min_z_score,
-        vis_weight=args.vis_weight,
-        sem_weight=args.sem_weight,
-        aud_weight=args.aud_weight
-    )
+    try:
+        print(f"\nQuery: '{args.query}' | Mode: '{args.mode}' | Device: '{device}'")
+        results = engine.search(
+            query_text=args.query,
+            mode=args.mode,
+            character_name=getattr(args, "character", None),
+            top_k=getattr(args, "top_k", DEFAULT_TOP_K),
+            min_rrf_score=getattr(args, "min_rrf_score", MIN_RRF_SCORE),
+            vis_weight=getattr(args, "vis_weight", None),
+            sem_weight=getattr(args, "sem_weight", None),
+            aud_weight=getattr(args, "aud_weight", None),
+        )
 
-    if not results:
-        print("[Warning] No matching frames passed the confidence / Z-score noise floor.")
-        return
+        if not results:
+            print("[Warning] No matching frames passed the confidence noise floor.")
+            return
 
-    print(f"\nTop {len(results)} Retrieved Frames:")
-    print("-" * 80)
-    for idx, r in enumerate(results, 1):
-        char_info = f" | Characters: {r.get('characters')}" if r.get('characters') else ""
-        print(f"#{idx:<2} Frame {r['frame_index']:<4} | Time: {r['timestamp']}s | Score: {r['score']:.4f}{char_info}")
-        if r.get("transcript"):
-            print(f"    Transcript: \"{r['transcript']}\"")
-        if r.get("frame_path"):
-            print(f"    Path: {r['frame_path']}")
-    print("-" * 80)
+        print(f"\nTop {len(results)} Retrieved Frames:")
+        print("-" * 80)
+        for idx, r in enumerate(results, 1):
+            char_info = f" | Characters: {r.get('characters')}" if r.get('characters') else ""
+            print(f"#{idx:<2} Frame {r['frame_index']:<4} | Time: {r['timestamp']}s | Score: {r['score']:.4f}{char_info}")
+            if r.get("transcript"):
+                print(f"    Transcript: \"{r['transcript']}\"")
+            path = r.get("file_path") or r.get("frame_path")
+            if path:
+                print(f"    Path: {path}")
+        print("-" * 80)
+    finally:
+        engine.close()
 
 
 def run_evaluate(args):
     """Runs retrieval benchmark evaluation against the golden dataset."""
     from src.search_engine import MultimodalSearchEngine
-    from src.evaluate import evaluate_retrieval
+    from src.evaluate import evaluate_retrieval, run_benchmark_comparison
 
-    dataset_path = os.path.join(args.media_folder, GOLDEN_DATASET_FILE)
+    media_folder = getattr(args, "media_folder", MEDIA_FOLDER_PATH)
+    qdrant_path = getattr(args, "qdrant_path", QDRANT_DB_DIR)
+    mode = getattr(args, "mode", "all")
+    verbose = getattr(args, "verbose", False)
+
+    dataset_path = os.path.join(media_folder, GOLDEN_DATASET_FILE)
     if not os.path.exists(dataset_path):
         print(f"[Error] Golden dataset file not found at: {dataset_path}")
         return
@@ -147,35 +164,31 @@ def run_evaluate(args):
     with open(dataset_path, "r") as f:
         golden_dataset = json.load(f)
 
-    device = args.device or get_default_device()
+    device = getattr(args, "device", None) or get_default_device()
     engine = MultimodalSearchEngine(
-        media_folder_path=args.media_folder,
-        qdrant_path=args.qdrant_path,
+        media_folder_path=media_folder,
+        qdrant_path=qdrant_path,
         device=device
     )
 
-    modes_to_eval = SEARCH_MODES if args.mode == "all" else [args.mode]
-    summary_results = []
-
-    for mode in modes_to_eval:
-        res = evaluate_retrieval(
-            search_engine=engine,
-            dataset=golden_dataset,
-            mode=mode,
-            min_z_score=args.min_z_score
-        )
-        summary_results.append(res)
-
-    print("\n" + "=" * 80)
-    print(" SUMMARY BENCHMARK COMPARISON ACROSS MODES")
-    print("=" * 80)
-    for res in summary_results:
-        print(
-            f"Mode: {res['mode']:<22} | MRR: {res['mrr']:.3f} | "
-            f"Recall@1: {res['recall_at_k'].get(1, 0.0):.3f} | "
-            f"Recall@5: {res['recall_at_k'].get(5, 0.0):.3f} | "
-            f"Rejection Acc: {res['rejection_accuracy_pct']:.1f}%"
-        )
+    try:
+        if mode == "all":
+            run_benchmark_comparison(
+                search_engine=engine,
+                dataset=golden_dataset,
+                print_more_info=verbose,
+            )
+        else:
+            res = evaluate_retrieval(
+                search_engine=engine,
+                dataset=golden_dataset,
+                mode=mode,
+                verbose=verbose,
+            )
+            print("\nEvaluation Results:")
+            print(json.dumps({k: v for k, v in res.items() if k != "detailed_queries"}, indent=2))
+    finally:
+        engine.close()
 
 
 def run_ui(args):
@@ -183,16 +196,21 @@ def run_ui(args):
     from src.search_engine import MultimodalSearchEngine
     from src.gradio_app import build_gradio_ui
 
-    device = args.device or get_default_device()
+    media_folder = getattr(args, "media_folder", MEDIA_FOLDER_PATH)
+    qdrant_path = getattr(args, "qdrant_path", QDRANT_DB_DIR)
+    port = getattr(args, "port", DEFAULT_GRADIO_PORT)
+    share = getattr(args, "share", False)
+    device = getattr(args, "device", None) or get_default_device()
+
     engine = MultimodalSearchEngine(
-        media_folder_path=args.media_folder,
-        qdrant_path=args.qdrant_path,
+        media_folder_path=media_folder,
+        qdrant_path=qdrant_path,
         device=device
     )
 
-    demo = build_gradio_ui(engine, media_folder_path=args.media_folder)
-    print(f"\nLaunching Gradio UI on port {args.port} (share={args.share})...")
-    demo.launch(server_port=args.port, share=args.share)
+    demo = build_gradio_ui(engine)
+    print(f"\nLaunching Gradio UI on port {port} (share={share})...")
+    demo.launch(server_port=port, share=share)
 
 
 def main():
@@ -200,11 +218,25 @@ def main():
         description="Unmayaverse: Multimodal AI Video Search & Retrieval Pipeline",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
+    # Global options
     parser.add_argument("--media-folder", type=str, default=MEDIA_FOLDER_PATH, help="Media and assets folder")
     parser.add_argument("--qdrant-path", type=str, default=QDRANT_DB_DIR, help="Qdrant local storage path")
     parser.add_argument("--device", type=str, default=None, help="Compute device ('cuda', 'mps', 'cpu')")
 
-    subparsers = parser.add_subparsers(dest="command", help="Pipeline command to execute")
+    # Top-level action flags (e.g., python -m src.main --evaluate --mode all)
+    parser.add_argument("--preprocess", action="store_true", help="Extract raw data and generate embeddings")
+    parser.add_argument("--embed", "--index", dest="embed", action="store_true", help="Index embeddings into Qdrant vector database")
+    parser.add_argument("--evaluate", action="store_true", help="Run benchmark evaluation on golden dataset")
+    parser.add_argument("--ui", action="store_true", help="Launch interactive Gradio web application")
+
+    # Shared parameters
+    parser.add_argument("--mode", type=str, choices=SEARCH_MODES + ["all"], default="all", help="Search mode")
+    parser.add_argument("--verbose", action="store_true", help="Print per-query evaluation details and modality breakdown")
+    parser.add_argument("--port", type=int, default=DEFAULT_GRADIO_PORT, help="Gradio server port")
+    parser.add_argument("--share", action="store_true", help="Generate public Gradio share link")
+    parser.add_argument("--min-rrf-score", type=float, default=MIN_RRF_SCORE, help="Minimum RRF score threshold")
+
+    subparsers = parser.add_subparsers(dest="command", help="Pipeline subcommands")
 
     # 1. Preprocess
     p_prep = subparsers.add_parser("preprocess", help="Extract raw data and generate embeddings")
@@ -214,8 +246,9 @@ def main():
     p_prep.add_argument("--reference-frame", type=int, default=DEFAULT_REFERENCE_FRAME, help="Frame index containing Maya's reference face")
     p_prep.add_argument("--face-threshold", type=float, default=DEFAULT_FACE_THRESHOLD, help="Cosine similarity threshold for face matching")
 
-    # 2. Index
+    # 2. Index / Embed
     p_idx = subparsers.add_parser("index", help="Index embeddings into Qdrant vector database")
+    subparsers.add_parser("embed", help="Index embeddings into Qdrant vector database")
 
     # 3. Search
     p_srch = subparsers.add_parser("search", help="Execute a multimodal retrieval query")
@@ -223,15 +256,15 @@ def main():
     p_srch.add_argument("--mode", type=str, choices=SEARCH_MODES, default=SEARCH_MODE_VISUAL_TEXT_AUDIO, help="Search mode")
     p_srch.add_argument("--character", type=str, default=None, help="Filter by character identity")
     p_srch.add_argument("--top-k", type=int, default=DEFAULT_TOP_K, help="Number of results to return")
-    p_srch.add_argument("--min-z-score", type=float, default=DEFAULT_MIN_Z_SCORE, help="Z-score threshold for outlier filtering")
-    p_srch.add_argument("--vis-weight", type=float, default=DEFAULT_VIS_WEIGHT, help="Visual modality weight")
-    p_srch.add_argument("--sem-weight", type=float, default=DEFAULT_SEM_WEIGHT, help="Semantic dialogue weight")
-    p_srch.add_argument("--aud-weight", type=float, default=DEFAULT_AUD_WEIGHT, help="Acoustic score weight")
+    p_srch.add_argument("--min-rrf-score", type=float, default=MIN_RRF_SCORE, help="Minimum RRF score threshold")
+    p_srch.add_argument("--vis-weight", type=float, default=None, help="Visual modality weight")
+    p_srch.add_argument("--sem-weight", type=float, default=None, help="Semantic dialogue weight")
+    p_srch.add_argument("--aud-weight", type=float, default=None, help="Acoustic score weight")
 
     # 4. Evaluate
     p_eval = subparsers.add_parser("evaluate", help="Run benchmark evaluation on golden dataset")
     p_eval.add_argument("--mode", type=str, choices=SEARCH_MODES + ["all"], default="all", help="Search mode to evaluate")
-    p_eval.add_argument("--min-z-score", type=float, default=DEFAULT_MIN_Z_SCORE, help="Z-score threshold")
+    p_eval.add_argument("--verbose", action="store_true", help="Print per-query evaluation details and modality breakdown")
 
     # 5. UI
     p_ui = subparsers.add_parser("ui", help="Launch interactive Gradio web application")
@@ -245,16 +278,17 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "preprocess":
+    # Route top-level flags or subcommands
+    if args.evaluate or args.command == "evaluate":
+        run_evaluate(args)
+    elif args.preprocess or args.command == "preprocess":
         run_preprocess(args)
-    elif args.command == "index":
+    elif args.embed or args.command in ["index", "embed"]:
         run_index(args)
+    elif args.ui or args.command == "ui":
+        run_ui(args)
     elif args.command == "search":
         run_search(args)
-    elif args.command == "evaluate":
-        run_evaluate(args)
-    elif args.command == "ui":
-        run_ui(args)
     elif args.command == "pipeline":
         run_preprocess(args)
         run_index(args)
